@@ -1,0 +1,25 @@
+{
+  "name": "mythic+-friend-finder",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "server": "node server/server.cjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.4.1",
+    "@libsql/client": "0.5.6",
+    "luxon": "^3.7.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}

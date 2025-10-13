@@ -1,0 +1,5 @@
+{
+  "name": "Mythic+ Friend Finder",
+  "description": "A lightweight social coordination tool designed for World of Warcraft guildmates or Mythic+ players to easily share and match their availability for running keys. The app collects player role preference and weekly availability in a standardized format, and dynamically highlights overlapping free times between users to assist in group formation.",
+  "requestFramePermissions": []
+}
