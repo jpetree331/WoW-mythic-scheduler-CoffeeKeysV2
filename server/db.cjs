@@ -94,6 +94,7 @@ async function ensureSchema(client) {
   if (!has('board')) { try { await client.execute("ALTER TABLE players ADD COLUMN board TEXT NOT NULL DEFAULT 'default'"); } catch {} }
   if (!has('client_id')) { try { await client.execute('ALTER TABLE players ADD COLUMN client_id TEXT'); } catch {} }
   if (!has('discord_name')) { try { await client.execute('ALTER TABLE players ADD COLUMN discord_name TEXT'); } catch {} }
+  if (!has('discord_id')) { try { await client.execute('ALTER TABLE players ADD COLUMN discord_id TEXT'); } catch {} }
   if (!has('role')) { try { await client.execute('ALTER TABLE players ADD COLUMN role TEXT'); } catch {} }
   if (!has('timezone')) { try { await client.execute('ALTER TABLE players ADD COLUMN timezone TEXT'); } catch {} }
   if (!has('availability')) { try { await client.execute('ALTER TABLE players ADD COLUMN availability TEXT'); } catch {} }
@@ -103,10 +104,12 @@ async function ensureSchema(client) {
   if (!has('wow_class')) { try { await client.execute('ALTER TABLE players ADD COLUMN wow_class TEXT'); } catch {} }
   if (!has('flex_role')) { try { await client.execute('ALTER TABLE players ADD COLUMN flex_role TEXT'); } catch {} }
   if (!has('flex_class')) { try { await client.execute('ALTER TABLE players ADD COLUMN flex_class TEXT'); } catch {} }
+  if (!has('is_main')) { try { await client.execute("ALTER TABLE players ADD COLUMN is_main INTEGER"); } catch {} }
 
   // Ensure indexes
   try { await client.execute('CREATE INDEX IF NOT EXISTS idx_players_board ON players(board)'); } catch {}
   try { await client.execute('CREATE INDEX IF NOT EXISTS idx_players_board_client ON players(board, client_id)'); } catch {}
+  try { await client.execute('CREATE INDEX IF NOT EXISTS idx_players_discord_id ON players(discord_id)'); } catch {}
 
   // Boards table for title
   await client.execute('CREATE TABLE IF NOT EXISTS boards (board TEXT PRIMARY KEY, title TEXT)');
@@ -170,12 +173,14 @@ function rowToPlayer(r) {
     availability: safeJsonParse(get('availability', 5), {}),
     notes: get('notes', 6) || undefined,
     discordName: get('discord_name', 8) || undefined,
+    discordId: get('discord_id', 19) || undefined,
     board: get('board', 10) || 'default',
     clientId: get('client_id', 11) || undefined,
     coffee: safeJsonParse(get('coffee', 12), undefined),
     wowClass: get('wow_class', 13) || undefined,
     flexRole: get('flex_role', 14) || undefined,
     flexClass: get('flex_class', 15) || undefined,
+    isMain: (get('is_main', 20) === 1) || get('is_main', 20) === true || get('is_main', 20) === '1' ? true : false,
     coffeeAssign: {
       day: get('coffee_group_day', 16) || undefined,
       tier: get('coffee_group_tier', 17) || undefined,
@@ -206,8 +211,8 @@ async function upsertPlayer(p) {
   const roleSingle = Array.isArray(p.roles) && p.roles.length ? p.roles[0] : (p.role || 'DPS');
   const rolesJson = JSON.stringify(Array.isArray(p.roles) ? p.roles : (p.role ? [p.role] : ['DPS']));
   const doInsert = async () => client.execute({
-    sql: `INSERT INTO players (id, name, role, roles, timezone, availability, notes, discord_name, created_at, board, client_id, coffee, wow_class, flex_role, flex_class)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO players (id, name, role, roles, timezone, availability, notes, discord_name, created_at, board, client_id, coffee, wow_class, flex_role, flex_class, discord_id, is_main)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       p.id,
       p.name,
@@ -224,6 +229,8 @@ async function upsertPlayer(p) {
       p.wowClass || null,
       p.flexRole || null,
       p.flexClass || null,
+      p.discordId || null,
+      p.isMain ? 1 : 0,
     ],
   });
   try { await doInsert(); } catch (e) { try { await ensureSchema(client); } catch {} await doInsert(); }
@@ -270,7 +277,7 @@ async function updatePlayer(p) {
   try {
     res = await client.execute({
       sql: `UPDATE players
-            SET name = ?, role = ?, roles = ?, timezone = ?, availability = ?, notes = ?, discord_name = ?, coffee = ?, wow_class = ?, flex_role = ?, flex_class = ?
+            SET name = ?, role = ?, roles = ?, timezone = ?, availability = ?, notes = ?, discord_name = ?, coffee = ?, wow_class = ?, flex_role = ?, flex_class = ?, discord_id = COALESCE(?, discord_id), is_main = COALESCE(?, is_main)
             WHERE id = ?`,
       args: [
         p.name,
@@ -284,6 +291,8 @@ async function updatePlayer(p) {
         p.wowClass || null,
         p.flexRole || null,
         p.flexClass || null,
+        p.discordId || null,
+        p.isMain === undefined ? null : (p.isMain ? 1 : 0),
         p.id,
       ],
     });
@@ -291,7 +300,7 @@ async function updatePlayer(p) {
     try { await ensureSchema(client); } catch {}
     res = await client.execute({
       sql: `UPDATE players
-            SET name = ?, role = ?, roles = ?, timezone = ?, availability = ?, notes = ?, discord_name = ?, coffee = ?, wow_class = ?, flex_role = ?, flex_class = ?
+            SET name = ?, role = ?, roles = ?, timezone = ?, availability = ?, notes = ?, discord_name = ?, coffee = ?, wow_class = ?, flex_role = ?, flex_class = ?, discord_id = COALESCE(?, discord_id), is_main = COALESCE(?, is_main)
             WHERE id = ?`,
       args: [
         p.name,
@@ -305,12 +314,28 @@ async function updatePlayer(p) {
         p.wowClass || null,
         p.flexRole || null,
         p.flexClass || null,
+        p.discordId || null,
+        p.isMain === undefined ? null : (p.isMain ? 1 : 0),
         p.id,
       ],
     });
   }
   const changes = res.rowsAffected ?? (res.affectedRows ?? 0);
   return (typeof changes === 'number') ? changes > 0 : true;
+}
+
+async function claimPlayersByClientId(clientId, discordId, discordName) {
+  if (!clientId || !discordId) return { updated: 0 };
+  const client = await getClient();
+  await ensureSchema(client);
+  const res = await client.execute({
+    sql: `UPDATE players
+          SET discord_id = ?, discord_name = COALESCE(?, discord_name)
+          WHERE client_id = ?`,
+    args: [discordId, discordName || null, clientId],
+  });
+  const updated = res.rowsAffected ?? (res.affectedRows ?? 0) ?? 0;
+  return { updated: typeof updated === 'number' ? updated : 0 };
 }
 
 async function getBoardSettings(board) {
@@ -389,6 +414,30 @@ async function clearGeneralPlayers(board) {
   }
 }
 
+async function listPlayersByDiscord(board, discordId) {
+  const client = await getClient();
+  await ensureSchema(client);
+  const res = await client.execute({
+    sql: `SELECT p.*, ca.day as coffee_group_day, ca.tier as coffee_group_tier, ca.group_index as coffee_group_index
+          FROM players p LEFT JOIN coffee_assignments ca ON ca.player_id = p.id
+          WHERE p.board = ? AND p.discord_id = ? ORDER BY p.created_at ASC`,
+    args: [board, discordId],
+  });
+  const rows = res.rows || [];
+  return rows.map(rowToPlayer).filter(Boolean);
+}
+
+async function setMainForDiscord(board, discordId, playerId) {
+  const client = await getClient();
+  await ensureSchema(client);
+  // Set selected player as main and demote others within same board+discord
+  await client.execute({
+    sql: `UPDATE players SET is_main = CASE WHEN id = ? THEN 1 ELSE 0 END WHERE board = ? AND discord_id = ?`,
+    args: [playerId, board, discordId],
+  });
+  return true;
+}
+
 module.exports = {
   listPlayers,
   upsertPlayer,
@@ -403,4 +452,7 @@ module.exports = {
   setCoffeeAssignmentsBatch,
   clearCoffeeAssignments,
   clearCoffeePlayers,
+  claimPlayersByClientId,
+  listPlayersByDiscord,
+  setMainForDiscord,
 };

@@ -3,8 +3,11 @@ import { Player, Match, Role } from './types';
 import AvailabilityForm from './components/AvailabilityForm';
 import SummaryDisplay from './components/SummaryDisplay';
 import { findOverlaps, isFullGroup } from './services/matchingService';
-import { fetchPlayers, createPlayer, deletePlayer as apiDeletePlayer, clearPlayers as apiClearPlayers, clearGeneralPlayers as apiClearGeneralPlayers, clearCoffeePlayers, setAdminToken, subscribeToUpdates, getAdminToken, clearAdminToken, updatePlayer as apiUpdatePlayer, getClientId, fetchBoardSettings, updateBoardSettings, verifyAdminToken } from './services/api';
+import { fetchPlayers, createPlayer, deletePlayer as apiDeletePlayer, clearPlayers as apiClearPlayers, clearGeneralPlayers as apiClearGeneralPlayers, clearCoffeePlayers, setAdminToken, subscribeToUpdates, getAdminToken, clearAdminToken, updatePlayer as apiUpdatePlayer, getClientId, fetchBoardSettings, updateBoardSettings, verifyAdminToken, fetchMe, getDiscordLoginUrl, logout as apiLogout, claimMyEntries } from './services/api';
 import CoffeeKeysPanel from './components/CoffeeKeysPanel';
+import AdminCharacterVault from './components/AdminCharacterVault';
+import CoffeeJoinModal from './components/CoffeeJoinModal';
+import MyCharactersModal from './components/MyCharactersModal';
 import { SAMPLE_PLAYERS } from './services/sampleData';
 import { filterCoffeeAttendees } from './services/coffeeGrouping';
 
@@ -26,6 +29,10 @@ const App: React.FC = () => {
   });
   const displayPlayers = useMemo(() => (isAdmin && showSamples) ? [...players, ...SAMPLE_PLAYERS] : players, [players, isAdmin, showSamples]);
   const [coffeeView, setCoffeeView] = useState<null | 'sat' | 'sun'>(null);
+  const [me, setMe] = useState<{ id: string; display?: string|null } | null>(null);
+  const [showVault, setShowVault] = useState(false);
+  const [showCoffeeJoin, setShowCoffeeJoin] = useState(false);
+  const [showMyChars, setShowMyChars] = useState(false);
   const hasAvailability = (p: Player) => {
     try { return Object.values(p.availability||{}).some((arr:any)=> Array.isArray(arr) && arr.length>0); } catch { return false; }
   };
@@ -57,6 +64,20 @@ const App: React.FC = () => {
         } catch (e) {
           // ignore board settings failure; keep default title
         }
+        try {
+          const meRes = await fetchMe();
+          const user = meRes.user ? { id: meRes.user.id, display: meRes.user.display || meRes.user.username || meRes.user.global_name || null } : null;
+          setMe(user);
+          if (user) {
+            try {
+              const res = await claimMyEntries();
+              if (res && res.updated > 0) {
+                const refreshed = await fetchPlayers();
+                setPlayers(refreshed);
+              }
+            } catch {}
+          }
+        } catch {}
       } catch (e) {
         console.error('Failed to load players', e);
       }
@@ -101,7 +122,27 @@ const App: React.FC = () => {
         setPlayers(prev => prev.map(p => p.id === editing.id ? { ...p, ...updated } as Player : p));
         setEditing(null);
       } else {
-        const created = await createPlayer(playerData);
+        // Require Discord login for submissions
+        if (!me) {
+          const go = confirm('Please login with Discord first. Open Discord login now?');
+          if (go) {
+            window.location.href = getDiscordLoginUrl();
+          }
+          return;
+        }
+        // Main/Alt prompt: if user already has a character, ask if this is an ALT
+        const myChars = players.filter(p => p.discordId && me && p.discordId === me.id);
+        let payload: any = { ...playerData };
+        if (myChars.length > 0) {
+          const isAlt = confirm('Is this an alt? Click OK for Yes, Cancel for No');
+          if (isAlt) {
+            payload.isMain = false;
+          } else {
+            alert('You already have a MAIN. Edit your main instead or create an ALT.');
+            return;
+          }
+        }
+        const created = await createPlayer(payload);
         setPlayers(prev => [...prev, created]);
       }
     } catch (e) {
@@ -257,6 +298,39 @@ const App: React.FC = () => {
           )}
           <p className="mt-2 text-lg text-gray-400">Coordinate your weekly keys with ease.</p>
           <div className="mt-4 flex items-center justify-center gap-2">
+            {me ? (
+              <>
+                <span className="text-sm text-gray-300">Signed in as {me.display || 'Discord user'}</span>
+                <button
+                  onClick={async () => { try { await apiLogout(); setMe(null); } catch {} }}
+                  className="text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 font-semibold py-1 px-3 rounded-md transition-colors"
+                >
+                  Logout
+                </button>
+                <button
+                  onClick={()=> setShowMyChars(true)}
+                  className="text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 font-semibold py-1 px-3 rounded-md transition-colors"
+                >
+                  My Characters
+                </button>
+                {/* User Coffee join quick action */}
+                {players.some(p=>p.discordId && me && p.discordId===me.id) && (
+                  <button
+                    onClick={()=> setShowCoffeeJoin(true)}
+                    className="text-sm bg-amber-600 hover:bg-amber-500 text-white font-semibold py-1 px-3 rounded-md transition-colors"
+                  >
+                    Join Coffee & Keys
+                  </button>
+                )}
+              </>
+            ) : (
+              <a
+                href={getDiscordLoginUrl()}
+                className="text-sm bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-1 px-3 rounded-md transition-colors"
+              >
+                Login with Discord
+              </a>
+            )}
             <button
               onClick={() => {
                 const url = new URL(window.location.href);
@@ -308,6 +382,12 @@ const App: React.FC = () => {
                 >
                   Coffee & Keys Sun
                 </button>
+                <button
+                  onClick={() => setShowVault(true)}
+                  className="text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 font-semibold py-1 px-3 rounded-md transition-colors"
+                >
+                  Character Vault
+                </button>
               </>
             )}
             <button
@@ -352,7 +432,7 @@ const App: React.FC = () => {
         </header>
         
         <main className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-1">
+          <div className="lg:col-span-1" id="availability-form">
             <AvailabilityForm onSubmit={handleAddPlayer} initial={editing ? { ...editing } : undefined} onCancelEdit={() => setEditing(null)} />
           </div>
           <div className="lg:col-span-2">
@@ -396,6 +476,19 @@ const App: React.FC = () => {
             )}
           </div>
         </main>
+        {isAdmin && showVault && (
+          <AdminCharacterVault players={players} onClose={()=> setShowVault(false)} />
+        )}
+        {showCoffeeJoin && me && (
+          <CoffeeJoinModal onClose={()=> setShowCoffeeJoin(false)} players={players.filter(p=>p.discordId && p.discordId===me.id)} />
+        )}
+        {showMyChars && me && (
+          <MyCharactersModal
+            onClose={()=> setShowMyChars(false)}
+            players={players.filter(p=>p.discordId && p.discordId===me.id)}
+            onRefetch={async ()=> { const data = await fetchPlayers(); setPlayers(data); }}
+          />
+        )}
       </div>
     </div>
   );

@@ -27,6 +27,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/1kFce6wtiYY2NP37mPZ8IF9
 - Environment Variables
   - Frontend: `VITE_API_BASE` (backend URL), `VITE_ADMIN_CLIENT_ID` (optional: show admin button for a specific client).
   - Backend: `ADMIN_TOKEN` (defaults to `OASISWOWCK` if not set), `DATABASE_URL` (Turso libSQL URL), `DATABASE_AUTH_TOKEN` (Turso token).
+  - Backend (Discord OAuth, optional): `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI` (e.g., `https://your-api/auth/discord/callback`), `SESSION_SECRET`.
 
 ## API Endpoints
 
@@ -66,8 +67,15 @@ View your app in AI Studio: https://ai.studio/apps/drive/1kFce6wtiYY2NP37mPZ8IF9
   - Event name: `players`
   - Payloads: `{ type: 'player_added' | 'player_deleted' | 'player_updated' | 'players_cleared', id?: string }`
 
+- Auth (Discord, optional)
+  - GET `/auth/discord/login?redirect=<url>` -> redirects to Discord login, then back to `redirect`.
+  - GET `/auth/discord/callback` -> exchanges code and sets session cookie.
+  - GET `/me` -> returns `{ user: { id, display, username, global_name, avatar } | null }`.
+  - POST `/auth/logout` -> clears session cookie.
+
 Notes
 - Ownership: The browser that creates an entry includes `clientId` in the POST body; later updates/deletes must send the same `X-Client-Id` header.
+- Discord: If logged in, new entries will store `discord_name` and `discord_id` from your session; edits/deletes also authorize if the row’s `discord_id` matches your session.
 - Timezones: All matching is computed relative to ET; users set their own timezone when creating entries.
 - CORS: Open for local and cross‑origin use; allowed headers include `Content-Type`, `Authorization`, and `X-Client-Id`.
 

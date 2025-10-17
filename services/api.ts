@@ -13,7 +13,7 @@ function getBoard(): string {
 
 export async function fetchPlayers(): Promise<Player[]> {
   const board = getBoard();
-  const res = await fetch(`${API_BASE}/players?board=${encodeURIComponent(board)}`);
+  const res = await fetch(`${API_BASE}/players?board=${encodeURIComponent(board)}`, { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to fetch players: ${res.status}`);
   return res.json();
 }
@@ -22,7 +22,7 @@ export interface BoardSettings { board: string; title: string | null }
 
 export async function fetchBoardSettings(): Promise<BoardSettings> {
   const board = getBoard();
-  const res = await fetch(`${API_BASE}/board?board=${encodeURIComponent(board)}`);
+  const res = await fetch(`${API_BASE}/board?board=${encodeURIComponent(board)}`, { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to fetch board: ${res.status}`);
   return res.json();
 }
@@ -35,6 +35,7 @@ export async function updateBoardSettings(data: Partial<{ title: string | null }
   const res = await fetch(`${API_BASE}/board?board=${encodeURIComponent(board)}`, {
     method: 'PATCH',
     headers,
+    credentials: 'include',
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error(`Failed to update board: ${res.status}`);
@@ -48,6 +49,7 @@ export async function assignCoffee(payload: { id: string, day: 'sat'|'sun'|null,
   const res = await fetch(`${API_BASE}/coffee/assign`, {
     method: 'PATCH',
     headers,
+    credentials: 'include',
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`Failed to assign: ${res.status}`);
@@ -61,6 +63,7 @@ export async function assignCoffeeBatch(day: 'sat'|'sun', assignments: { id: str
   const res = await fetch(`${API_BASE}/coffee/assign-batch?board=${encodeURIComponent(board)}`, {
     method: 'POST',
     headers,
+    credentials: 'include',
     body: JSON.stringify({ day, assignments, clearOthers }),
   });
   if (!res.ok) throw new Error(`Failed to batch assign: ${res.status}`);
@@ -71,6 +74,7 @@ export async function createPlayer(input: Omit<Player, 'id'>): Promise<Player> {
   const res = await fetch(`${API_BASE}/players?board=${encodeURIComponent(board)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify({ ...input, board, clientId: getClientId() }),
   });
   if (!res.ok) throw new Error(`Failed to create player: ${res.status}`);
@@ -85,6 +89,7 @@ export async function deletePlayer(id: string): Promise<void> {
   const res = await fetch(`${API_BASE}/players/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers,
+    credentials: 'include',
   });
   if (!res.ok) throw new Error(`Failed to delete player: ${res.status}`);
 }
@@ -94,7 +99,7 @@ export async function clearPlayers(): Promise<void> {
   const headers: Record<string, string> = {};
   const token = getAdminToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`${API_BASE}/players?board=${encodeURIComponent(board)}`, { method: 'DELETE', headers });
+  const res = await fetch(`${API_BASE}/players?board=${encodeURIComponent(board)}`, { method: 'DELETE', headers, credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to clear players: ${res.status}`);
 }
 
@@ -103,7 +108,7 @@ export async function clearGeneralPlayers(): Promise<void> {
   const headers: Record<string, string> = {};
   const token = getAdminToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`${API_BASE}/players?board=${encodeURIComponent(board)}&general=true`, { method: 'DELETE', headers });
+  const res = await fetch(`${API_BASE}/players?board=${encodeURIComponent(board)}&general=true`, { method: 'DELETE', headers, credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to clear general players: ${res.status}`);
 }
 
@@ -112,7 +117,7 @@ export async function clearCoffeePlayers(day: 'sat' | 'sun'): Promise<void> {
   const headers: Record<string, string> = {};
   const token = getAdminToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`${API_BASE}/coffee/clear?board=${encodeURIComponent(board)}&day=${day}`, { method: 'DELETE', headers });
+  const res = await fetch(`${API_BASE}/coffee/clear?board=${encodeURIComponent(board)}&day=${day}`, { method: 'DELETE', headers, credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to clear coffee players: ${res.status}`);
 }
 
@@ -133,7 +138,7 @@ export async function verifyAdminToken(): Promise<boolean> {
   const token = getAdminToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
   try {
-    const res = await fetch(`${API_BASE}/admin/verify`, { headers });
+    const res = await fetch(`${API_BASE}/admin/verify`, { headers, credentials: 'include' });
     return res.ok;
   } catch {
     return false;
@@ -176,8 +181,31 @@ export async function updatePlayer(id: string, data: Partial<Omit<Player, 'id'>>
   const res = await fetch(`${API_BASE}/players/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers,
+    credentials: 'include',
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error(`Failed to update player: ${res.status}`);
+  return res.json();
+}
+
+// Auth helpers
+export interface MeUser { id: string; username?: string|null; global_name?: string|null; avatar?: string|null; display?: string|null }
+export async function fetchMe(): Promise<{ user: MeUser | null }> {
+  const res = await fetch(`${API_BASE}/me`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch me: ${res.status}`);
+  return res.json();
+}
+export function getDiscordLoginUrl(redirect?: string): string {
+  const r = redirect || (typeof window !== 'undefined' ? window.location.href : '/');
+  return `${API_BASE}/auth/discord/login?redirect=${encodeURIComponent(r)}`;
+}
+export async function logout(): Promise<void> {
+  await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
+}
+
+export async function claimMyEntries(): Promise<{ ok: true, updated: number }> {
+  const headers: Record<string, string> = { 'X-Client-Id': getClientId() };
+  const res = await fetch(`${API_BASE}/auth/claim`, { method: 'POST', headers, credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to claim entries: ${res.status}`);
   return res.json();
 }

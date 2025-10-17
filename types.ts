@@ -21,8 +21,10 @@ export interface Player {
   availability: Availability;
   notes?: string;
   discordName?: string; // optional Discord handle for contact
+  discordId?: string; // optional: attached Discord user id
   board?: string; // board slug this player belongs to
   clientId?: string; // owner id (local browser)
+  isMain?: boolean; // MAIN vs ALT flag
   // Coffee & Keys event signup (optional)
   coffee?: {
     attendSat?: boolean;
