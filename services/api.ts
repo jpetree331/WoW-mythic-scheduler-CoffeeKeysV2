@@ -1,6 +1,11 @@
 import type { Player } from '../types';
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE || 'http://localhost:8787';
+// Normalize API base so that setting VITE_API_BASE="/" works in dev with proxy
+// Example:
+//  - VITE_API_BASE = "/"   -> API_BASE = ""  (so paths become "/auth/...\")
+//  - VITE_API_BASE = "https://api.example" -> API_BASE = "https://api.example"
+const RAW_BASE = (import.meta as any).env?.VITE_API_BASE || 'http://localhost:8787';
+const API_BASE = RAW_BASE === '/' ? '' : (RAW_BASE.endsWith('/') ? RAW_BASE.slice(0, -1) : RAW_BASE);
 
 function getBoard(): string {
   try {

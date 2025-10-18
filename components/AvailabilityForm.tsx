@@ -8,9 +8,13 @@ interface AvailabilityFormProps {
   onSubmit: (playerData: Omit<Player, 'id'>) => void;
   initial?: Omit<Player, 'id'> & { id?: string };
   onCancelEdit?: () => void;
+  mode?: 'full' | 'availabilityOnly';
+  myPlayers?: Player[];
+  onSubmitAvailability?: (playerId: string, data: Partial<Player>) => void;
+  availabilityTargetId?: string;
 }
 
-const AvailabilityForm: React.FC<AvailabilityFormProps> = ({ onSubmit, initial, onCancelEdit }) => {
+const AvailabilityForm: React.FC<AvailabilityFormProps> = ({ onSubmit, initial, onCancelEdit, mode='full', myPlayers, onSubmitAvailability, availabilityTargetId }) => {
   const [name, setName] = useState('');
   const [selectedRoles, setSelectedRoles] = useState<Role[]>([]);
   const [flexRole, setFlexRole] = useState<Role | ''>('');
@@ -20,6 +24,7 @@ const AvailabilityForm: React.FC<AvailabilityFormProps> = ({ onSubmit, initial, 
   const [error, setError] = useState<string | null>(null);
   const defaultTz = (Intl && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'America/New_York';
   const [timezone, setTimezone] = useState<string>(defaultTz);
+  const [selectedPlayerId, setSelectedPlayerId] = useState<string>('');
   // Coffee & Keys
   const [coffeeEnabled, setCoffeeEnabled] = useState<boolean>(false);
   const [coffeeSat, setCoffeeSat] = useState<boolean>(false);
@@ -79,13 +84,20 @@ const AvailabilityForm: React.FC<AvailabilityFormProps> = ({ onSubmit, initial, 
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) {
-        setError('Please enter your character name.');
-        return;
-    }
-    if (!selectedRoles || selectedRoles.length === 0) {
+    if (mode !== 'availabilityOnly') {
+      if (!name.trim()) {
+          setError('Please enter your character name.');
+          return;
+      }
+      if (!selectedRoles || selectedRoles.length === 0) {
+          setError('Please select at least one role.');
+          return;
+      }
+    } else {
+      if (!selectedRoles || selectedRoles.length === 0) {
         setError('Please select at least one role.');
         return;
+      }
     }
     const hasAvailability = !(Object.keys(availability).length === 0 || Object.values(availability).every(v => v.length === 0));
     if (!hasAvailability) {
@@ -102,6 +114,25 @@ const AvailabilityForm: React.FC<AvailabilityFormProps> = ({ onSubmit, initial, 
       attendSun: coffeeSun || false,
       keyTier: coffeeTier,
     } : undefined;
+    if (mode === 'availabilityOnly') {
+      const targetId = availabilityTargetId || selectedPlayerId;
+      if (!targetId) {
+        setError('No character available to attach availability. Create a character first.');
+        return;
+      }
+      if (onSubmitAvailability) {
+        onSubmitAvailability(targetId, { availability, notes, timezone, roles: selectedRoles, coffee: undefined });
+      }
+      // reset subset
+      setAvailability({});
+      setNotes('');
+      setTimezone(defaultTz);
+      setCoffeeEnabled(false);
+      setCoffeeSat(false);
+      setCoffeeSun(false);
+      setCoffeeTier(undefined);
+      return;
+    }
     onSubmit({ name, roles: selectedRoles, availability, notes, timezone, discordName: discordName || undefined, coffee, wowClass: wowClass || undefined, flexRole: (flexRole || undefined) as any, flexClass: flexClass || undefined });
     setName('');
     setSelectedRoles([]);
@@ -120,26 +151,37 @@ const AvailabilityForm: React.FC<AvailabilityFormProps> = ({ onSubmit, initial, 
 
   return (
     <div className="bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700">
-      <h2 className="text-2xl font-bold mb-4 text-yellow-300">Add Your Availability</h2>
+      <h2 className="text-2xl font-bold mb-4 text-yellow-300">{mode==='availabilityOnly' ? 'Add Availability' : 'Add Your Availability'}</h2>
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div>
-          <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-1">Character Name</label>
-          <input
-            type="text"
-            id="name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white focus:ring-yellow-500 focus:border-yellow-500"
-            placeholder="e.g., Arthas"
-          />
-        </div>
-        
-        <div>
-           <label className="block text-sm font-medium text-gray-300 mb-2">Role(s) You Can Play</label>
-           <RoleSelector selectedRoles={selectedRoles} onToggleRole={(role)=>{
+        {mode === 'availabilityOnly' ? (
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Select Role(s) For Weekly Keys</label>
+            <RoleSelector selectedRoles={selectedRoles} onToggleRole={(role)=>{
               setSelectedRoles(prev => prev.includes(role) ? prev.filter(r=>r!==role) : [...prev, role]);
-           }} />
-        </div>
+            }} />
+          </div>
+        ) : (
+          <>
+            <div>
+              <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-1">Character Name</label>
+              <input
+                type="text"
+                id="name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white focus:ring-yellow-500 focus:border-yellow-500"
+                placeholder="e.g., Arthas"
+              />
+            </div>
+            
+            <div>
+               <label className="block text-sm font-medium text-gray-300 mb-2">Role(s) You Can Play</label>
+               <RoleSelector selectedRoles={selectedRoles} onToggleRole={(role)=>{
+                  setSelectedRoles(prev => prev.includes(role) ? prev.filter(r=>r!==role) : [...prev, role]);
+               }} />
+            </div>
+          </>
+        )}
 
         <div>
           <label htmlFor="timezone" className="block text-sm font-medium text-gray-300 mb-1">Your Timezone</label>
@@ -158,17 +200,19 @@ const AvailabilityForm: React.FC<AvailabilityFormProps> = ({ onSubmit, initial, 
           </select>
         </div>
 
-        <div>
-          <label htmlFor="discord" className="block text-sm font-medium text-gray-300 mb-1">Discord Name (optional)</label>
-          <input
-            type="text"
-            id="discord"
-            value={discordName}
-            onChange={(e) => setDiscordName(e.target.value)}
-            className="w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white focus:ring-yellow-500 focus:border-yellow-500"
-            placeholder="e.g., YourName#1234 or @yourname"
-          />
-        </div>
+        {mode !== 'availabilityOnly' && (
+          <div>
+            <label htmlFor="discord" className="block text-sm font-medium text-gray-300 mb-1">Discord Name (optional)</label>
+            <input
+              type="text"
+              id="discord"
+              value={discordName}
+              onChange={(e) => setDiscordName(e.target.value)}
+              className="w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white focus:ring-yellow-500 focus:border-yellow-500"
+              placeholder="e.g., YourName#1234 or @yourname"
+            />
+          </div>
+        )}
 
         <div>
           <label htmlFor="notes" className="block text-sm font-medium text-gray-300 mb-1">Notes (Optional)</label>
@@ -182,55 +226,57 @@ const AvailabilityForm: React.FC<AvailabilityFormProps> = ({ onSubmit, initial, 
           />
         </div>
 
-        <div className="border-t border-gray-700 pt-4">
-          <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2">
-            <input type="checkbox" checked={coffeeEnabled} onChange={(e)=> setCoffeeEnabled(e.target.checked)} />
-            Coffee & Keys event
-          </label>
-          {coffeeEnabled && (
-            <div className="space-y-3 pl-1">
-              <div className="flex items-center gap-4 flex-wrap">
-                <label className="flex items-center gap-2 text-gray-300">
-                  <input type="checkbox" checked={coffeeSat} onChange={(e)=> setCoffeeSat(e.target.checked)} />
-                  <span>Saturday {formatNoonETInLocal(timezone)}</span>
-                </label>
-                <label className="flex items-center gap-2 text-gray-300">
-                  <input type="checkbox" checked={coffeeSun} onChange={(e)=> setCoffeeSun(e.target.checked)} />
-                  <span>Sunday {formatNoonETInLocal(timezone)}</span>
-                </label>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm text-gray-400">Preferred key level:</span>
-                {(['2-5','6-9','10+'] as const).map(t => (
-                  <button key={t} type="button" onClick={()=> setCoffeeTier(t)} className={`text-sm py-1 px-2 rounded-md border ${coffeeTier===t? 'bg-yellow-500 text-gray-900 border-yellow-400' : 'bg-gray-700 text-gray-200 border-gray-600 hover:bg-gray-600'}`}>{t}</button>
-                ))}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Class (for admin info)</label>
-                <select value={wowClass} onChange={(e)=> setWowClass(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white">
-                  <option value="">Select class (optional)</option>
-                  {WOW_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div className="grid sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Flex Role (optional)</label>
-                  <select value={flexRole as any} onChange={(e)=> setFlexRole((e.target.value || '') as any)} className="w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white">
-                    <option value="">None</option>
-                    {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>
+        {mode !== 'availabilityOnly' && (
+          <div className="border-t border-gray-700 pt-4">
+            <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2">
+              <input type="checkbox" checked={coffeeEnabled} onChange={(e)=> setCoffeeEnabled(e.target.checked)} />
+              Coffee & Keys event
+            </label>
+            {coffeeEnabled && (
+              <div className="space-y-3 pl-1">
+                <div className="flex items-center gap-4 flex-wrap">
+                  <label className="flex items-center gap-2 text-gray-300">
+                    <input type="checkbox" checked={coffeeSat} onChange={(e)=> setCoffeeSat(e.target.checked)} />
+                    <span>Saturday {formatNoonETInLocal(timezone)}</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-gray-300">
+                    <input type="checkbox" checked={coffeeSun} onChange={(e)=> setCoffeeSun(e.target.checked)} />
+                    <span>Sunday {formatNoonETInLocal(timezone)}</span>
+                  </label>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm text-gray-400">Preferred key level:</span>
+                  {(['2-5','6-9','10+'] as const).map(t => (
+                    <button key={t} type="button" onClick={()=> setCoffeeTier(t)} className={`text-sm py-1 px-2 rounded-md border ${coffeeTier===t? 'bg-yellow-500 text-gray-900 border-yellow-400' : 'bg-gray-700 text-gray-200 border-gray-600 hover:bg-gray-600'}`}>{t}</button>
+                  ))}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Flex Class (optional)</label>
-                  <select value={flexClass} onChange={(e)=> setFlexClass(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white">
-                    <option value="">None</option>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Class (for admin info)</label>
+                  <select value={wowClass} onChange={(e)=> setWowClass(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white">
+                    <option value="">Select class (optional)</option>
                     {WOW_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Flex Role (optional)</label>
+                    <select value={flexRole as any} onChange={(e)=> setFlexRole((e.target.value || '') as any)} className="w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white">
+                      <option value="">None</option>
+                      {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Flex Class (optional)</label>
+                    <select value={flexClass} onChange={(e)=> setFlexClass(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white">
+                      <option value="">None</option>
+                      {WOW_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
         {!coffeeEnabled && (
           <div>

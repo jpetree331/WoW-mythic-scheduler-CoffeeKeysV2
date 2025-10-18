@@ -96,7 +96,7 @@ const MyCharactersModal: React.FC<Props> = ({ players, onClose, onRefetch }) => 
                         setField(p.id, 'roles', next);
                       }}
                     />
-                    <div className="grid sm:grid-cols-1 gap-3 mt-3">
+                    <div className="grid sm:grid-cols-2 gap-3 mt-3">
                       <div>
                         <label className="block text-xs text-gray-400 mb-1">Class</label>
                         <select
@@ -106,6 +106,17 @@ const MyCharactersModal: React.FC<Props> = ({ players, onClose, onRefetch }) => 
                         >
                           <option value="">None</option>
                           {WOW_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">Flex Role</label>
+                        <select
+                          value={(editing[p.id]?.flexRole as any) || ''}
+                          onChange={(e)=> setField(p.id, 'flexRole', (e.target.value || '') as any)}
+                          className="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-gray-100"
+                        >
+                          <option value="">None</option>
+                          {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                         </select>
                       </div>
                     </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Player, Match, Role } from './types';
 import AvailabilityForm from './components/AvailabilityForm';
+import CharacterCreatePanel from './components/CharacterCreatePanel';
 import SummaryDisplay from './components/SummaryDisplay';
 import { findOverlaps, isFullGroup } from './services/matchingService';
 import { fetchPlayers, createPlayer, deletePlayer as apiDeletePlayer, clearPlayers as apiClearPlayers, clearGeneralPlayers as apiClearGeneralPlayers, clearCoffeePlayers, setAdminToken, subscribeToUpdates, getAdminToken, clearAdminToken, updatePlayer as apiUpdatePlayer, getClientId, fetchBoardSettings, updateBoardSettings, verifyAdminToken, fetchMe, getDiscordLoginUrl, logout as apiLogout, claimMyEntries } from './services/api';
@@ -148,6 +149,16 @@ const App: React.FC = () => {
     } catch (e) {
       console.error('Failed to add player', e);
       alert('Failed to submit availability. Please try again.');
+    }
+  };
+
+  const handleSubmitAvailability = async (playerId: string, data: Partial<Player>) => {
+    try {
+      const updated = await apiUpdatePlayer(playerId, data);
+      setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, ...updated } as Player : p));
+    } catch (e) {
+      console.error('Failed to update availability', e);
+      alert('Failed to update availability. Please try again.');
     }
   };
   
@@ -313,15 +324,7 @@ const App: React.FC = () => {
                 >
                   My Characters
                 </button>
-                {/* User Coffee join quick action */}
-                {players.some(p=>p.discordId && me && p.discordId===me.id) && (
-                  <button
-                    onClick={()=> setShowCoffeeJoin(true)}
-                    className="text-sm bg-amber-600 hover:bg-amber-500 text-white font-semibold py-1 px-3 rounded-md transition-colors"
-                  >
-                    Join Coffee & Keys
-                  </button>
-                )}
+                {/* Removed top-level Join Coffee button (redundant) */}
               </>
             ) : (
               <a
@@ -431,9 +434,54 @@ const App: React.FC = () => {
           </div>
         </header>
         
-        <main className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Gate the app behind login: show a simple login screen first */}
+        {!me ? (
+          <main className="max-w-xl mx-auto bg-gray-800 p-6 rounded-lg border border-gray-700">
+            <h2 className="text-2xl font-bold text-yellow-300 mb-3">Welcome</h2>
+            <p className="text-gray-300 mb-4">Please login with Discord to manage your characters and availability.</p>
+            <a href={getDiscordLoginUrl()} className="inline-block bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 px-4 rounded-md">Login with Discord</a>
+          </main>
+        ) : (
+          <main className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-1" id="availability-form">
-            <AvailabilityForm onSubmit={handleAddPlayer} initial={editing ? { ...editing } : undefined} onCancelEdit={() => setEditing(null)} />
+            {me ? (
+              <>
+                <CharacterCreatePanel
+                  myPlayers={players.filter(p=> p.discordId && me && p.discordId===me.id)}
+                  onJoinCoffee={() => setShowCoffeeJoin(true)}
+                  onDelete={async (id: string)=>{ await handleDeletePlayer(id); }}
+                  onCreate={async (data:any)=>{
+                    try {
+                      const created = await createPlayer({
+                        name: data.name,
+                        roles: data.roles,
+                        availability: {},
+                        notes: '',
+                        timezone: 'America/New_York',
+                        coffee: undefined,
+                        wowClass: data.wowClass,
+                        flexRole: undefined,
+                        flexClass: undefined,
+                        ...(data.isMain !== undefined ? { isMain: data.isMain } : {}),
+                      } as any);
+                      setPlayers(prev => [...prev, created]);
+                    } catch (e) {
+                      console.error('Failed to create character', e);
+                      alert('Failed to create character. Make sure you are logged in.');
+                    }
+                  }}
+                />
+                <AvailabilityForm
+                  mode="availabilityOnly"
+                  myPlayers={players.filter(p=> p.discordId && me && p.discordId===me.id)}
+                  availabilityTargetId={(players.find(p=> me && p.discordId===me.id && p.isMain)?.id) || (players.find(p=> me && p.discordId===me.id)?.id) || ''}
+                  onSubmit={handleAddPlayer}
+                  onSubmitAvailability={handleSubmitAvailability}
+                />
+              </>
+            ) : (
+              <AvailabilityForm onSubmit={handleAddPlayer} initial={editing ? { ...editing } : undefined} onCancelEdit={() => setEditing(null)} />
+            )}
           </div>
           <div className="lg:col-span-2">
             {isAdmin && coffeeView ? (
@@ -475,7 +523,8 @@ const App: React.FC = () => {
               />
             )}
           </div>
-        </main>
+          </main>
+        )}
         {isAdmin && showVault && (
           <AdminCharacterVault players={players} onClose={()=> setShowVault(false)} />
         )}
