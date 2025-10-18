@@ -377,19 +377,29 @@ async function clearCoffeePlayers(board, day) {
     sql: `DELETE FROM coffee_assignments WHERE board = ? AND day = ?`,
     args: [board, day],
   });
-  // DO NOT delete players - just clear their coffee signup for this day
+  // Remove players from Coffee & Keys signup completely for this day
   const players = await listPlayers(board);
   for (const p of players) {
     const signedUpForDay = day === 'sat' ? (p.coffee && p.coffee.attendSat) : (p.coffee && p.coffee.attendSun);
     if (signedUpForDay) {
-      // Remove this day from their signup but keep the player
-      const updatedCoffee = { ...p.coffee };
-      if (day === 'sat') updatedCoffee.attendSat = false;
-      else updatedCoffee.attendSun = false;
-      await client.execute({
-        sql: 'UPDATE players SET coffee = ? WHERE id = ?',
-        args: [JSON.stringify(updatedCoffee), p.id],
-      });
+      // Check if they're signed up for the other day
+      const otherDay = day === 'sat' ? (p.coffee && p.coffee.attendSun) : (p.coffee && p.coffee.attendSat);
+      if (otherDay) {
+        // If they're signed up for both days, just remove this day
+        const updatedCoffee = { ...p.coffee };
+        if (day === 'sat') updatedCoffee.attendSat = false;
+        else updatedCoffee.attendSun = false;
+        await client.execute({
+          sql: 'UPDATE players SET coffee = ? WHERE id = ?',
+          args: [JSON.stringify(updatedCoffee), p.id],
+        });
+      } else {
+        // If they're only signed up for this day, remove coffee data entirely
+        await client.execute({
+          sql: 'UPDATE players SET coffee = NULL WHERE id = ?',
+          args: [p.id],
+        });
+      }
     }
   }
   return true;
