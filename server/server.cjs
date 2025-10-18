@@ -418,7 +418,7 @@ const server = http.createServer(async (req, res) => {
       const day = url.searchParams.get('day');
       if (day !== 'sat' && day !== 'sun') return send(req, res, 400, { error: 'Invalid day parameter' });
       // New behavior: clear only Coffee & Keys group assignments, keep player/character data intact
-      await clearCoffeeAssignments(board, day);
+      await clearCoffeePlayers(board, day);
       broadcast(board, { type: 'coffee_cleared', day });
       return send(req, res, 200, { ok: true });
     } catch (e) {

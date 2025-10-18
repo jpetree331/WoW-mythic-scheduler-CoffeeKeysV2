@@ -216,11 +216,16 @@ const App: React.FC = () => {
 
   const handleClearCoffeeSat = async () => {
     if (!confirm('This will clear all Coffee & Keys Saturday signups and assignments. Continue?')) return;
+    console.log('[handleClearCoffeeSat] Starting clear process...');
     try {
+      console.log('[handleClearCoffeeSat] Calling clearCoffeePlayers...');
       await clearCoffeePlayers('sat');
+      console.log('[handleClearCoffeeSat] clearCoffeePlayers completed, refreshing data...');
       // Refresh players to get updated data
       const data = await fetchPlayers();
+      console.log('[handleClearCoffeeSat] Fetched updated players:', data.length);
       setPlayers(data);
+      console.log('[handleClearCoffeeSat] Clear process completed successfully');
     } catch (e) {
       console.error('Failed to clear Coffee & Keys Sat', e);
       alert('Failed to clear Coffee & Keys Saturday data.');

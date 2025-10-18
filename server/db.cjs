@@ -372,36 +372,60 @@ async function clearCoffeeAssignments(board, day) {
 async function clearCoffeePlayers(board, day) {
   const client = await getClient();
   await ensureSchema(client);
+  console.log(`[clearCoffeePlayers] Clearing Coffee & Keys for ${day} on board ${board}`);
+  
   // Clear assignments for this day - this is the main purpose
   await client.execute({
     sql: `DELETE FROM coffee_assignments WHERE board = ? AND day = ?`,
     args: [board, day],
   });
+  console.log(`[clearCoffeePlayers] Cleared coffee_assignments for ${day}`);
+  
   // Remove players from Coffee & Keys signup completely for this day
   const players = await listPlayers(board);
+  console.log(`[clearCoffeePlayers] Found ${players.length} total players`);
+  
   for (const p of players) {
     const signedUpForDay = day === 'sat' ? (p.coffee && p.coffee.attendSat) : (p.coffee && p.coffee.attendSun);
     if (signedUpForDay) {
+      console.log(`[clearCoffeePlayers] Processing player ${p.name} who is signed up for ${day}`);
+      
       // Check if they're signed up for the other day
       const otherDay = day === 'sat' ? (p.coffee && p.coffee.attendSun) : (p.coffee && p.coffee.attendSat);
       if (otherDay) {
+        console.log(`[clearCoffeePlayers] Player ${p.name} is signed up for both days, removing only ${day}`);
         // If they're signed up for both days, just remove this day
         const updatedCoffee = { ...p.coffee };
-        if (day === 'sat') updatedCoffee.attendSat = false;
-        else updatedCoffee.attendSun = false;
+        if (day === 'sat') {
+          updatedCoffee.attendSat = false;
+          // If they're only signed up for Saturday, remove keyTier too
+          if (!updatedCoffee.attendSun) {
+            updatedCoffee.keyTier = undefined;
+          }
+        } else {
+          updatedCoffee.attendSun = false;
+          // If they're only signed up for Sunday, remove keyTier too
+          if (!updatedCoffee.attendSat) {
+            updatedCoffee.keyTier = undefined;
+          }
+        }
         await client.execute({
           sql: 'UPDATE players SET coffee = ? WHERE id = ?',
           args: [JSON.stringify(updatedCoffee), p.id],
         });
+        console.log(`[clearCoffeePlayers] Updated player ${p.name} coffee data:`, updatedCoffee);
       } else {
+        console.log(`[clearCoffeePlayers] Player ${p.name} is only signed up for ${day}, removing all coffee data`);
         // If they're only signed up for this day, remove coffee data entirely
         await client.execute({
           sql: 'UPDATE players SET coffee = NULL WHERE id = ?',
           args: [p.id],
         });
+        console.log(`[clearCoffeePlayers] Removed all coffee data for player ${p.name}`);
       }
     }
   }
+  console.log(`[clearCoffeePlayers] Completed clearing Coffee & Keys for ${day}`);
   return true;
 }
 
