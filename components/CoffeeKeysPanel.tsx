@@ -73,7 +73,7 @@ const CoffeeKeysPanel: React.FC<Props> = ({ allPlayers, day }) => {
                     });
                   }
                   try {
-                    await assignCoffeeBatch(day, batch, true);
+                    await assignCoffeeBatch(day, batch, false);
                     // Refresh the page to show the assignments
                     window.location.reload();
                   } catch (e) {

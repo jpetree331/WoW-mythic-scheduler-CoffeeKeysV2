@@ -372,30 +372,24 @@ async function clearCoffeeAssignments(board, day) {
 async function clearCoffeePlayers(board, day) {
   const client = await getClient();
   await ensureSchema(client);
-  // Clear assignments for this day
+  // Clear assignments for this day - this is the main purpose
   await client.execute({
     sql: `DELETE FROM coffee_assignments WHERE board = ? AND day = ?`,
     args: [board, day],
   });
-  // Delete players who signed up for this specific day
+  // DO NOT delete players - just clear their coffee signup for this day
   const players = await listPlayers(board);
   for (const p of players) {
     const signedUpForDay = day === 'sat' ? (p.coffee && p.coffee.attendSat) : (p.coffee && p.coffee.attendSun);
     if (signedUpForDay) {
-      // Only delete if they ONLY signed up for this day (not both days)
-      const otherDay = day === 'sat' ? (p.coffee && p.coffee.attendSun) : (p.coffee && p.coffee.attendSat);
-      if (!otherDay) {
-        await client.execute({ sql: 'DELETE FROM players WHERE id = ?', args: [p.id] });
-      } else {
-        // If they signed up for both days, just remove this day from their signup
-        const updatedCoffee = { ...p.coffee };
-        if (day === 'sat') updatedCoffee.attendSat = false;
-        else updatedCoffee.attendSun = false;
-        await client.execute({
-          sql: 'UPDATE players SET coffee = ? WHERE id = ?',
-          args: [JSON.stringify(updatedCoffee), p.id],
-        });
-      }
+      // Remove this day from their signup but keep the player
+      const updatedCoffee = { ...p.coffee };
+      if (day === 'sat') updatedCoffee.attendSat = false;
+      else updatedCoffee.attendSun = false;
+      await client.execute({
+        sql: 'UPDATE players SET coffee = ? WHERE id = ?',
+        args: [JSON.stringify(updatedCoffee), p.id],
+      });
     }
   }
   return true;

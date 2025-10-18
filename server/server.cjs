@@ -205,15 +205,21 @@ const server = http.createServer(async (req, res) => {
     parts.push('Path=/');
     parts.push(`Max-Age=${60*60*24*30}`);
     parts.push('HttpOnly');
-    // Cross-site deployments need SameSite=None; Secure
-    parts.push('SameSite=None');
-    if (isProd) parts.push('Secure');
+    if (isProd) {
+      // Cross-site production deployments require SameSite=None; Secure
+      parts.push('SameSite=None');
+      parts.push('Secure');
+    } else {
+      // Local dev over http: avoid the SameSite=None; Secure requirement so cookie isn't rejected
+      parts.push('SameSite=Lax');
+    }
     res.setHeader('Set-Cookie', parts.join('; '));
   }
   function clearSessionCookie(req, res) {
-    const parts = [ `${COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=None` ];
-    if (process.env.NODE_ENV === 'production') parts[0] += '; Secure';
-    res.setHeader('Set-Cookie', parts[0]);
+    const isProd = process.env.NODE_ENV === 'production';
+    let header = `${COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly;`;
+    header += isProd ? ' SameSite=None; Secure' : ' SameSite=Lax';
+    res.setHeader('Set-Cookie', header);
   }
 
   async function discordTokenExchange(code) {
@@ -411,8 +417,8 @@ const server = http.createServer(async (req, res) => {
       const board = url.searchParams.get('board') || 'default';
       const day = url.searchParams.get('day');
       if (day !== 'sat' && day !== 'sun') return send(req, res, 400, { error: 'Invalid day parameter' });
-      // Clear both assignments and players for this day
-      await clearCoffeePlayers(board, day);
+      // New behavior: clear only Coffee & Keys group assignments, keep player/character data intact
+      await clearCoffeeAssignments(board, day);
       broadcast(board, { type: 'coffee_cleared', day });
       return send(req, res, 200, { ok: true });
     } catch (e) {
@@ -477,14 +483,14 @@ const server = http.createServer(async (req, res) => {
           return send(req, res, 500, { error: e && e.message ? e.message : 'Internal Error' });
         }
         broadcast(board, { type: 'player_added', id: newPlayer.id });
-        // Auto-assign for Coffee if exactly one day selected
+        // Auto-assign for Coffee: assign for each selected day
         try {
           if (coffeeValid) {
             const days = [];
             if (coffee.attendSat) days.push('sat');
             if (coffee.attendSun) days.push('sun');
-            if (days.length === 1) {
-              await autoAssignCoffee(board, days[0], newPlayer);
+            for (const d of days) {
+              await autoAssignCoffee(board, d, newPlayer);
             }
           }
         } catch (e) { console.error('auto-assign on submit failed:', e); }
@@ -557,6 +563,18 @@ const server = http.createServer(async (req, res) => {
       };
       const ok = await updatePlayer(patch);
       if (!ok) return send(req, res, 500, { error: 'Failed to update' });
+      // Auto-assign for Coffee & Keys if provided on update (assign for each selected day)
+      try {
+        if (body && body.coffee && (body.coffee.attendSat || body.coffee.attendSun) && body.coffee.keyTier) {
+          const days = [];
+          if (body.coffee.attendSat) days.push('sat');
+          if (body.coffee.attendSun) days.push('sun');
+          const updatedPlayer = { ...current, ...patch };
+          for (const d of days) {
+            await autoAssignCoffee(current.board || 'default', d, updatedPlayer);
+          }
+        }
+      } catch (e) { console.warn('auto-assign on PATCH failed:', e && e.message ? e.message : e); }
       // If user asked to make this MAIN, enforce demotion of others for same owner
       if (body && body.isMain === true) {
         try {
@@ -607,38 +625,64 @@ function broadcastAll(payload) {
 // --- Coffee auto-assignment helper ---
 async function autoAssignCoffee(board, day, player) {
   try {
+    console.log(`[autoAssignCoffee] Starting auto-assignment for player ${player.name} (${player.id}) on ${day}`);
     const all = await listPlayers(board);
     const tier = player && player.coffee && player.coffee.keyTier;
-    if (!tier) return;
+    if (!tier) {
+      console.log(`[autoAssignCoffee] No tier found for player ${player.name}`);
+      return;
+    }
+    console.log(`[autoAssignCoffee] Player ${player.name} tier: ${tier}, roles:`, player.roles);
+    
     const sameTier = all.filter(p => p.coffeeAssign && p.coffeeAssign.day === day && p.coffeeAssign.tier === tier);
+    console.log(`[autoAssignCoffee] Found ${sameTier.length} players in same tier ${tier} for ${day}`);
+    
     const byGroup = new Map(); // index -> { players: Player[] }
     for (const p of sameTier) {
       const idx = p.coffeeAssign.groupIndex || 1;
       if (!byGroup.has(idx)) byGroup.set(idx, { players: [] });
       byGroup.get(idx).players.push(p);
     }
+    
     const summarize = (players) => {
       let hasTank = false, hasHealer = false, dps = 0;
       for (const x of players) {
-        const r = Array.isArray(x.roles) && x.roles.length ? x.roles[0] : 'DPS';
-        if (r === 'Tank') hasTank = true; else if (r === 'Healer') hasHealer = true; else dps++;
+        const roles = Array.isArray(x.roles) && x.roles.length ? x.roles : ['DPS'];
+        // Check if player can tank or heal (not just their primary role)
+        const canTank = roles.includes('Tank');
+        const canHeal = roles.includes('Healer');
+        if (canTank) hasTank = true; 
+        else if (canHeal) hasHealer = true; 
+        else dps++;
       }
       return { hasTank, hasHealer, dps, size: players.length };
     };
-    const myRole = Array.isArray(player.roles) && player.roles.length ? player.roles[0] : 'DPS';
+    
+    const myRoles = Array.isArray(player.roles) && player.roles.length ? player.roles : ['DPS'];
+    const canTank = myRoles.includes('Tank');
+    const canHeal = myRoles.includes('Healer');
+    console.log(`[autoAssignCoffee] Player ${player.name} can tank: ${canTank}, can heal: ${canHeal}, roles:`, myRoles);
+    
     let choice = null;
     const indices = Array.from(byGroup.keys()).sort((a,b)=>a-b);
+    console.log(`[autoAssignCoffee] Available group indices:`, indices);
+    
     for (const idx of indices) {
       const g = byGroup.get(idx);
       const s = summarize(g.players);
+      console.log(`[autoAssignCoffee] Group ${idx}: hasTank=${s.hasTank}, hasHealer=${s.hasHealer}, dps=${s.dps}, size=${s.size}`);
+      
       if (s.size >= 5) continue;
-      if (myRole === 'Tank' && !s.hasTank) { choice = idx; break; }
-      if (myRole === 'Healer' && !s.hasHealer) { choice = idx; break; }
-      if (myRole === 'DPS' && s.dps < 3) { choice = idx; break; }
+      if (canTank && !s.hasTank) { choice = idx; break; }
+      if (canHeal && !s.hasHealer) { choice = idx; break; }
+      if (s.dps < 3) { choice = idx; break; }
     }
+    
     if (!choice) {
       choice = indices.length ? (Math.max(...indices) + 1) : 1;
     }
+    
+    console.log(`[autoAssignCoffee] Assigning player ${player.name} to group ${choice}`);
     await setCoffeeAssignment(player.id, day, tier, choice);
     broadcast(board, { type: 'coffee_updated' });
   } catch (e) {
